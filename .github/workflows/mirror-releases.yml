@@ -1,0 +1,78 @@
+name: Mirror Releases
+
+# Runs only in this repo (the public vlT-vl/pmxtools "release index"). Polls
+# the two private source repos — pmxtools-cli and pmxtools-ui — for releases
+# not yet mirrored here, and republishes each one as an exact copy (same
+# assets, same notes) under a prefixed tag, so this public repo is always the
+# canonical place a release can be found even though the source lives private.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-releases
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    name: Mirror ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: vlT-vl/pmxtools-cli
+            prefix: cli-
+          - repo: vlT-vl/pmxtools-ui
+            prefix: ui-
+    env:
+      # Default token for every gh call against THIS repo (release read/create).
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Read-only PAT scoped to pmxtools-cli + pmxtools-ui only — set once as a
+      # secret on this repo. Used explicitly (never as the ambient default)
+      # only for calls that read the private source repo below.
+      SOURCE_TOKEN: ${{ secrets.PRIVATE_REPOS_READ_TOKEN }}
+      SOURCE_REPO: ${{ matrix.repo }}
+      TAG_PREFIX: ${{ matrix.prefix }}
+    steps:
+      - name: Mirror non-draft releases not yet copied here
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SOURCE_TOKEN:-}" ]; then
+            echo "::error::PRIVATE_REPOS_READ_TOKEN secret is not set on this repo — cannot read ${SOURCE_REPO}. See readme.md for setup."
+            exit 1
+          fi
+
+          GH_TOKEN="$SOURCE_TOKEN" gh api "repos/${SOURCE_REPO}/releases" --paginate \
+            --jq '.[] | select(.draft==false) | [.tag_name, .name] | @tsv' \
+            > /tmp/source-releases.tsv
+
+          if [ ! -s /tmp/source-releases.tsv ]; then
+            echo "no releases found on ${SOURCE_REPO} yet"
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r tag name; do
+            mirrored_tag="${TAG_PREFIX}${tag}"
+
+            if gh release view "$mirrored_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "already mirrored: ${mirrored_tag}"
+              continue
+            fi
+
+            echo "mirroring ${SOURCE_REPO}@${tag} -> ${mirrored_tag}"
+            rm -rf /tmp/mirror-assets
+            mkdir -p /tmp/mirror-assets
+            GH_TOKEN="$SOURCE_TOKEN" gh release download "$tag" --repo "$SOURCE_REPO" --dir /tmp/mirror-assets --clobber
+            notes="$(GH_TOKEN="$SOURCE_TOKEN" gh release view "$tag" --repo "$SOURCE_REPO" --json body --jq .body)"
+
+            gh release create "$mirrored_tag" /tmp/mirror-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "${name:-$mirrored_tag}" \
+              --notes "$notes"
+          done < /tmp/source-releases.tsv
