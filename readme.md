@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/pmxtools--cli-0.1.2--R170626-blue?style=flat-square" alt="pmxtools-cli latest"/>
-  <img src="https://img.shields.io/badge/pmxtools--ui-0.1.0--R140726-blue?style=flat-square" alt="pmxtools-ui latest"/>
+  <img src="https://img.shields.io/badge/pmxtools--cli-0.1.3--R100926-blue?style=flat-square" alt="pmxtools-cli latest"/>
+  <img src="https://img.shields.io/badge/pmxtools--ui-0.1.1--R100926-blue?style=flat-square" alt="pmxtools-ui latest"/>
   <img src="https://img.shields.io/badge/source-private-critical?style=flat-square" alt="source-private"/>
   <img src="https://img.shields.io/badge/license-proprietary-critical?style=flat-square" alt="license"/>
 </p>
@@ -48,6 +48,7 @@ Single self-contained binary, built per OS/architecture:
 
 | Version | Build |
 |---|---|
+| 0.1.3 | R100926 |
 | 0.1.2 | R170626 |
 | 0.1.1 | R120626 |
 | 0.1.0 | R100326 |
@@ -68,8 +69,20 @@ Native desktop app, built per OS/architecture and published as a GitHub Release 
 
 | Version | Build |
 |---|---|
+| 0.1.1 | R100926 |
 | 0.1.0 | R140726 |
 
 ---
 
-Copyright © 2026 vlT di Veronesi Lorenzo. Tutti i diritti sono riservati.
+## How releases get here
+
+`.github/workflows/mirror-releases.yml` runs in this repo on a schedule (every
+30 minutes) and on manual dispatch. It checks `pmxtools-cli` and `pmxtools-ui`
+for releases not yet mirrored here and republishes each one as an exact copy
+(same assets, same changelog section) under a prefixed tag — `cli-v<version>-
+<build>` / `ui-v<version>-<build>` — so this repo stays the canonical public
+place to find a release without needing access to either private repo.
+
+---
+
+Copyright © 2026 vlT di Veronesi Lorenzo. All rights reserved.
