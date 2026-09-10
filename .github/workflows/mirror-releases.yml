@@ -58,7 +58,18 @@ jobs:
           fi
 
           while IFS=$'\t' read -r tag name; do
-            mirrored_tag="${TAG_PREFIX}${tag}"
+            # Naming convention for this repo: <prefix>-v<version>-<build>,
+            # e.g. cli-v0.1.3-R100926 / ui-v0.1.1-R100926 — both products get a
+            # "v" before the version, prefixed with which product it is, so
+            # releases from both source repos stay distinguishable at a glance
+            # in one shared list. pmxtools-ui's own tags already start with
+            # "v" (e.g. v0.1.1-R100926); pmxtools-cli's own tags don't (e.g.
+            # 0.1.3-R100926) — normalize both to the same shape here.
+            case "$tag" in
+              v*) versioned_tag="$tag" ;;
+              *)  versioned_tag="v${tag}" ;;
+            esac
+            mirrored_tag="${TAG_PREFIX}${versioned_tag}"
 
             if gh release view "$mirrored_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "already mirrored: ${mirrored_tag}"
@@ -69,10 +80,31 @@ jobs:
             rm -rf /tmp/mirror-assets
             mkdir -p /tmp/mirror-assets
             GH_TOKEN="$SOURCE_TOKEN" gh release download "$tag" --repo "$SOURCE_REPO" --dir /tmp/mirror-assets --clobber
-            notes="$(GH_TOKEN="$SOURCE_TOKEN" gh release view "$tag" --repo "$SOURCE_REPO" --json body --jq .body)"
 
+            # Notes are the actual CHANGELOG.md section for this version, read
+            # straight from the source repo's CHANGELOG.md at this tag — never
+            # a link back to the source repo (it's private, a public visitor
+            # here couldn't follow it). If CHANGELOG.md doesn't exist at this
+            # tag, or has no matching "## <tag>" section (older releases that
+            # predate the changelog), fall back to an honest note instead.
+            changelog="$(GH_TOKEN="$SOURCE_TOKEN" gh api "repos/${SOURCE_REPO}/contents/CHANGELOG.md" -f ref="$tag" --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || true)"
+            notes=""
+            if [ -n "$changelog" ]; then
+              notes="$(printf '%s' "$changelog" | awk -v heading="## ${tag}" '
+                index($0, heading) == 1 { found=1; next }
+                found && /^## / { exit }
+                found { print }
+              ')"
+            fi
+            if [ -z "$(printf '%s' "$notes" | tr -d "[:space:]")" ]; then
+              notes="No changelog entry recorded for this release."
+            fi
+
+            # Title always equals the mirrored tag (not the source's own
+            # release name) so it's self-describing on this shared repo,
+            # regardless of what the source repo happened to title it.
             gh release create "$mirrored_tag" /tmp/mirror-assets/* \
               --repo "$GITHUB_REPOSITORY" \
-              --title "${name:-$mirrored_tag}" \
+              --title "$mirrored_tag" \
               --notes "$notes"
           done < /tmp/source-releases.tsv
